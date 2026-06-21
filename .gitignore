@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Runtime data (tokens, state, working PDFs)
+data/
+*.rmapi.conf
+state.json
+work/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

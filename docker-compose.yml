@@ -1,0 +1,15 @@
+services:
+  rem-readwise:
+    build: .
+    image: rem-readwise:latest
+    container_name: rem-readwise
+    env_file: .env
+    volumes:
+      # Persists the reMarkable token, sync state, and scratch files.
+      - ./data:/data
+    restart: unless-stopped
+    # The default command is `run` (the forever sync loop). To pair the
+    # reMarkable the first time, run a one-off:
+    #   docker compose run --rm rem-readwise auth-remarkable <one-time-code>
+    # Check credentials any time with:
+    #   docker compose run --rm rem-readwise auth-check
