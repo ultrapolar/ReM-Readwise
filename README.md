@@ -120,9 +120,27 @@ rem-readwise status                   # counts of synced docs / highlights
   the underlying characters when the PDF has selectable text. Highlights drawn
   on a scanned/image-only PDF have no text and are skipped. Most Readwise Reader
   PDFs have a text layer.
-- **Downloading Reader PDFs** uses each document's `source_url`. PDFs saved from
-  a public URL download directly; Readwise-hosted uploads are fetched with your
-  token. If a document exposes no retrievable source, it is logged and skipped.
+- **Downloading Reader PDFs** uses each document's `source_url`:
+  - PDFs you **saved from a public URL** download directly — these just work.
+  - PDFs you **uploaded** into Reader (drag-and-drop / the `U` dialog) are the
+    hard case: Readwise's public API exposes **no per-document file download**,
+    and `source_url` for an upload is often empty or points at an HTML page. The
+    bytes do exist server-side (Reader can *"Export Full Files and Articles"* as
+    a ZIP), but there's no documented API to fetch one file.
+  - The downloader therefore **validates** what it gets: if a `pdf` document's
+    `source_url` doesn't return real PDF bytes, the doc is **skipped** (counted
+    as "unretrievable") and left unmarked so it retries later — we never push a
+    broken file to the device.
+
+  **Workarounds for uploaded PDFs** (pick based on your workflow):
+  1. *Save by URL instead of uploading* — if a PDF lives at a public URL, save
+     it to Reader from that URL; `source_url` is then set and sync just works.
+  2. *Full-files export seeding* — periodically run Reader's "Export Full Files
+     and Articles" and drop the PDFs where the tool can reach them. (A local
+     "inbox" ingest mode that automates this is a planned follow-up — open an
+     issue / ask if you want it.)
+  3. Ask Readwise to add a per-document file endpoint; the moment they do, this
+     path becomes fully automatic.
 - **reMarkable software 3.x (`.rm` v6)** is the supported on-device format.
 - This uses the **unofficial** reMarkable Cloud API via `rmapi`. Keep backups of
   important documents.

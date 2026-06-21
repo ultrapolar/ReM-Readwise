@@ -50,6 +50,19 @@ class ReadwiseError(RuntimeError):
     """Raised when the Readwise API returns an unrecoverable error."""
 
 
+class ReadwiseDownloadError(ReadwiseError):
+    """Raised when a document's source file can't be retrieved as expected."""
+
+
+def _looks_like_pdf(path: Path) -> bool:
+    """True if the file starts with the PDF magic number (``%PDF-``)."""
+    try:
+        with path.open("rb") as fh:
+            return fh.read(5) == b"%PDF-"
+    except OSError:
+        return False
+
+
 def build_highlight_payloads(
     doc: ReaderDocument,
     highlights: list[RmHighlight],
@@ -167,19 +180,36 @@ class ReadwiseClient:
         Uses the document's ``source_url`` (the most reliable handle the public
         API exposes). Readwise-hosted assets are fetched with the auth header;
         external URLs are fetched anonymously.
+
+        The result is validated: for PDFs we confirm the bytes really are a PDF.
+        This matters because Reader does not expose a download URL for files you
+        *uploaded* (vs. saved from the web), so ``source_url`` may be empty or
+        point at an HTML page. Rather than push a broken "PDF" to the reMarkable,
+        we raise :class:`ReadwiseDownloadError` so the caller can skip and retry
+        later (the document is not marked as synced).
         """
         url = doc.best_source
         if not url:
-            raise ReadwiseError(
-                f"Document {doc.id!r} ({doc.title!r}) has no source_url to download."
+            raise ReadwiseDownloadError(
+                f"{doc.title!r} has no source_url. Reader does not expose a download "
+                "URL for uploaded files; see the README 'limitations' section."
             )
         headers = self._headers if "readwise.io" in url else {}
         dest.parent.mkdir(parents=True, exist_ok=True)
         with self._client.stream("GET", url, headers=headers, follow_redirects=True) as resp:
             resp.raise_for_status()
+            content_type = resp.headers.get("Content-Type", "")
             with dest.open("wb") as fh:
                 for chunk in resp.iter_bytes():
                     fh.write(chunk)
+
+        if doc.category == "pdf" and not _looks_like_pdf(dest):
+            dest.unlink(missing_ok=True)
+            raise ReadwiseDownloadError(
+                f"{doc.title!r}: source_url did not return a PDF "
+                f"(Content-Type={content_type!r}, url={url}). This is usually an "
+                "uploaded file Reader won't serve back; skipping."
+            )
         logger.debug("Downloaded %s -> %s", doc.title, dest)
         return dest
 

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rem_readwise.models import ReaderDocument
-from rem_readwise.readwise import ReadwiseClient
+from rem_readwise.readwise import ReadwiseClient, ReadwiseDownloadError
 from rem_readwise.remarkable import RemarkableClient
 from rem_readwise.sync.state import SyncState
 from rem_readwise.util import sanitize_name
@@ -20,6 +20,7 @@ class ForwardResult:
     considered: int = 0
     uploaded: int = 0
     skipped_existing: int = 0
+    skipped_no_source: int = 0
     failed: int = 0
 
 
@@ -77,15 +78,22 @@ class ForwardSync:
                 self._state.save()
                 result.uploaded += 1
                 local_pdf.unlink(missing_ok=True)
+            except ReadwiseDownloadError as exc:
+                # Expected for uploaded PDFs Reader won't serve back. Leave the
+                # doc unmarked so it retries if a source becomes available.
+                logger.warning("Skipping %r: %s", doc.title, exc)
+                result.skipped_no_source += 1
             except Exception:  # noqa: BLE001 - keep going through the library
                 logger.exception("Failed to upload %r (%s)", doc.title, doc.id)
                 result.failed += 1
 
         logger.info(
-            "Forward sync: %d considered, %d uploaded, %d already there, %d failed",
+            "Forward sync: %d considered, %d uploaded, %d already there, "
+            "%d unretrievable, %d failed",
             result.considered,
             result.uploaded,
             result.skipped_existing,
+            result.skipped_no_source,
             result.failed,
         )
         return result
