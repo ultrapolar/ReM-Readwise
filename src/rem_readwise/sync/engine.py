@@ -11,6 +11,7 @@ from rem_readwise.config import Settings
 from rem_readwise.readwise import ReadwiseClient
 from rem_readwise.remarkable import RemarkableClient
 from rem_readwise.sync.forward import ForwardResult, ForwardSync
+from rem_readwise.sync.inbox import InboxResult, InboxSync
 from rem_readwise.sync.reverse import ReverseResult, ReverseSync
 from rem_readwise.sync.state import SyncState
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CycleResult:
     forward: ForwardResult
+    inbox: InboxResult
     reverse: ReverseResult
 
 
@@ -79,6 +81,17 @@ class SyncEngine:
             )
             forward_result = forward.run(documents)
 
+            # Inbox: local PDFs Reader can't serve back. Uploaded to the device
+            # and registered so their highlights round-trip like any other doc.
+            inbox = InboxSync(
+                remarkable,
+                self._state,
+                folder=settings.remarkable_folder,
+                inbox_dir=Path(settings.inbox_dir),
+                dry_run=settings.dry_run,
+            )
+            inbox_result = inbox.run()
+
             reverse = ReverseSync(
                 readwise,
                 remarkable,
@@ -87,10 +100,12 @@ class SyncEngine:
                 work_dir=work_dir,
                 dry_run=settings.dry_run,
             )
-            reverse_result = reverse.run(documents)
+            reverse_result = reverse.run(documents + inbox.documents())
 
         self._state.save()
-        return CycleResult(forward=forward_result, reverse=reverse_result)
+        return CycleResult(
+            forward=forward_result, inbox=inbox_result, reverse=reverse_result
+        )
 
     def run_forever(self) -> None:
         """Run sync cycles forever, sleeping ``sync_interval_seconds`` between."""

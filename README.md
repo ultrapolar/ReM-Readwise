@@ -92,6 +92,7 @@ All settings come from environment variables (see [`.env.example`](.env.example)
 | `RMAPI_CONFIG` | `/data/rmapi.conf` | reMarkable token file (keep on a volume). |
 | `STATE_PATH` | `/data/state.json` | Sync state (uploaded docs + pushed highlights). |
 | `WORK_DIR` | `/data/work` | Scratch space for downloads. |
+| `INBOX_DIR` | `/data/inbox` | Drop local PDFs here to push them to the device (see below). |
 | `DRY_RUN` | `0` | `1` logs intended actions without changing anything. |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 
@@ -133,14 +134,28 @@ rem-readwise status                   # counts of synced docs / highlights
     broken file to the device.
 
   **Workarounds for uploaded PDFs** (pick based on your workflow):
-  1. *Save by URL instead of uploading* — if a PDF lives at a public URL, save
+  1. **Inbox mode (recommended)** — drop the PDF into `INBOX_DIR` and the tool
+     pushes it to the reMarkable itself, so highlights round-trip normally. See
+     [Inbox mode](#inbox-mode-uploaded-pdfs) below.
+  2. *Save by URL instead of uploading* — if a PDF lives at a public URL, save
      it to Reader from that URL; `source_url` is then set and sync just works.
-  2. *Full-files export seeding* — periodically run Reader's "Export Full Files
-     and Articles" and drop the PDFs where the tool can reach them. (A local
-     "inbox" ingest mode that automates this is a planned follow-up — open an
-     issue / ask if you want it.)
   3. Ask Readwise to add a per-document file endpoint; the moment they do, this
      path becomes fully automatic.
+
+### Inbox mode (uploaded PDFs)
+
+For PDFs you uploaded into Reader (which Reader won't serve back), drop the
+original file into the inbox folder instead:
+
+```bash
+cp ~/Downloads/some-paper.pdf ./data/inbox/
+```
+
+On the next cycle the tool uploads it to your reMarkable folder and registers it
+in the sync state. Highlight it on the device and the highlights flow back to
+Readwise titled after the file (e.g. `some-paper`). Because the tool is the
+uploader, the on-device PDF is byte-identical to your file, so page numbers line
+up exactly. Each file is uploaded once (tracked by name in the state).
 - **reMarkable software 3.x (`.rm` v6)** is the supported on-device format.
 - This uses the **unofficial** reMarkable Cloud API via `rmapi`. Keep backups of
   important documents.
