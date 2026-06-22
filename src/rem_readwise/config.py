@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     sync_interval_seconds: int = Field(default=900)
     state_path: str = Field(default="/data/state.json")
     work_dir: str = Field(default="/data/work")
+    inbox_dir: str = Field(default="/data/inbox")
     dry_run: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 

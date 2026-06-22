@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from rem_readwise.models import ReaderDocument, RmHighlight
+from rem_readwise.readwise import ReadwiseDownloadError
 from rem_readwise.remarkable.client import RemarkableEntry
 from rem_readwise.sync import reverse as reverse_mod
 from rem_readwise.sync.forward import ForwardSync
@@ -101,3 +102,26 @@ def test_full_loop_uploads_then_pushes_highlights_with_dedup(tmp_path, monkeypat
     rev2 = reverse.run([doc])
     assert rev2.highlights_pushed == 0
     assert len(readwise.created) == 2  # unchanged
+
+
+def test_unretrievable_pdf_is_skipped_and_retried(tmp_path):
+    """A doc whose PDF can't be fetched is skipped, not marked uploaded."""
+
+    class FailingReadwise(FakeReadwise):
+        def download_document(self, doc, dest):
+            raise ReadwiseDownloadError("no source")
+
+    doc = ReaderDocument(id="99", title="Uploaded Only", category="pdf")
+    readwise = FailingReadwise([doc])
+    remarkable = FakeRemarkable()
+    state = SyncState(tmp_path / "state.json")
+
+    forward = ForwardSync(
+        readwise, remarkable, state, folder="Readwise", work_dir=tmp_path / "work"
+    )
+    result = forward.run([doc])
+
+    assert result.uploaded == 0
+    assert result.skipped_no_source == 1
+    assert remarkable.uploaded == []
+    assert not state.is_uploaded("99")  # left for a future retry

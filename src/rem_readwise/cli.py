@@ -78,7 +78,14 @@ def sync(
     typer.secho(
         f"Forward: {result.forward.uploaded} uploaded, "
         f"{result.forward.skipped_existing} already present, "
+        f"{result.forward.skipped_no_source} unretrievable, "
         f"{result.forward.failed} failed.",
+        fg=typer.colors.CYAN,
+    )
+    typer.secho(
+        f"Inbox:   {result.inbox.uploaded} uploaded, "
+        f"{result.inbox.skipped_existing} already present, "
+        f"{result.inbox.failed} failed.",
         fg=typer.colors.CYAN,
     )
     typer.secho(

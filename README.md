@@ -92,6 +92,7 @@ All settings come from environment variables (see [`.env.example`](.env.example)
 | `RMAPI_CONFIG` | `/data/rmapi.conf` | reMarkable token file (keep on a volume). |
 | `STATE_PATH` | `/data/state.json` | Sync state (uploaded docs + pushed highlights). |
 | `WORK_DIR` | `/data/work` | Scratch space for downloads. |
+| `INBOX_DIR` | `/data/inbox` | Drop local PDFs here to push them to the device (see below). |
 | `DRY_RUN` | `0` | `1` logs intended actions without changing anything. |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 
@@ -120,9 +121,41 @@ rem-readwise status                   # counts of synced docs / highlights
   the underlying characters when the PDF has selectable text. Highlights drawn
   on a scanned/image-only PDF have no text and are skipped. Most Readwise Reader
   PDFs have a text layer.
-- **Downloading Reader PDFs** uses each document's `source_url`. PDFs saved from
-  a public URL download directly; Readwise-hosted uploads are fetched with your
-  token. If a document exposes no retrievable source, it is logged and skipped.
+- **Downloading Reader PDFs** uses each document's `source_url`:
+  - PDFs you **saved from a public URL** download directly — these just work.
+  - PDFs you **uploaded** into Reader (drag-and-drop / the `U` dialog) are the
+    hard case: Readwise's public API exposes **no per-document file download**,
+    and `source_url` for an upload is often empty or points at an HTML page. The
+    bytes do exist server-side (Reader can *"Export Full Files and Articles"* as
+    a ZIP), but there's no documented API to fetch one file.
+  - The downloader therefore **validates** what it gets: if a `pdf` document's
+    `source_url` doesn't return real PDF bytes, the doc is **skipped** (counted
+    as "unretrievable") and left unmarked so it retries later — we never push a
+    broken file to the device.
+
+  **Workarounds for uploaded PDFs** (pick based on your workflow):
+  1. **Inbox mode (recommended)** — drop the PDF into `INBOX_DIR` and the tool
+     pushes it to the reMarkable itself, so highlights round-trip normally. See
+     [Inbox mode](#inbox-mode-uploaded-pdfs) below.
+  2. *Save by URL instead of uploading* — if a PDF lives at a public URL, save
+     it to Reader from that URL; `source_url` is then set and sync just works.
+  3. Ask Readwise to add a per-document file endpoint; the moment they do, this
+     path becomes fully automatic.
+
+### Inbox mode (uploaded PDFs)
+
+For PDFs you uploaded into Reader (which Reader won't serve back), drop the
+original file into the inbox folder instead:
+
+```bash
+cp ~/Downloads/some-paper.pdf ./data/inbox/
+```
+
+On the next cycle the tool uploads it to your reMarkable folder and registers it
+in the sync state. Highlight it on the device and the highlights flow back to
+Readwise titled after the file (e.g. `some-paper`). Because the tool is the
+uploader, the on-device PDF is byte-identical to your file, so page numbers line
+up exactly. Each file is uploaded once (tracked by name in the state).
 - **reMarkable software 3.x (`.rm` v6)** is the supported on-device format.
 - This uses the **unofficial** reMarkable Cloud API via `rmapi`. Keep backups of
   important documents.
