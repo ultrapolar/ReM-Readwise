@@ -2,57 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from rem_readwise.models import ReaderDocument, RmHighlight
 from rem_readwise.readwise import ReadwiseDownloadError
-from rem_readwise.remarkable.client import RemarkableEntry
 from rem_readwise.sync import reverse as reverse_mod
 from rem_readwise.sync.forward import ForwardSync
 from rem_readwise.sync.reverse import ReverseSync
 from rem_readwise.sync.state import SyncState
 from rem_readwise.util import sanitize_name
-
-
-class FakeReadwise:
-    def __init__(self, docs):
-        self._docs = docs
-        self.created: list[dict] = []
-
-    def list_documents(self, *, category=None, location=None):
-        yield from self._docs
-
-    def download_document(self, doc, dest: Path):
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(b"%PDF-fake")
-        return dest
-
-    def create_highlights(self, payloads):
-        self.created.extend(payloads)
-        return payloads
-
-
-class FakeRemarkable:
-    def __init__(self):
-        self.uploaded: list[str] = []
-
-    def is_authenticated(self):
-        return True
-
-    def ensure_folder(self, folder):
-        pass
-
-    def upload_pdf(self, local_pdf: Path, folder: str):
-        self.uploaded.append(local_pdf.stem)
-
-    def list_folder(self, folder):
-        return [RemarkableEntry(name=name, is_dir=False) for name in self.uploaded]
-
-    def download(self, remote_path: str, dest_dir: Path) -> Path:
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        archive = dest_dir / "doc.rmdoc"
-        archive.write_bytes(b"archive")
-        return archive
+from tests.conftest import FakeReadwise, FakeRemarkable
 
 
 def test_full_loop_uploads_then_pushes_highlights_with_dedup(tmp_path, monkeypatch):
