@@ -95,6 +95,42 @@ All settings come from environment variables (see [`.env.example`](.env.example)
 | `INBOX_DIR` | `/data/inbox` | Drop local PDFs here to push them to the device (see below). |
 | `DRY_RUN` | `0` | `1` logs intended actions without changing anything. |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+| `STATUS_PATH` | `/data/status.json` | Liveness status file, rewritten after every cycle (see [below](#monitoring--alerts)). |
+| `ALERT_WEBHOOK_URL` | _(disabled)_ | Optional Discord-compatible webhook for failure/recovery alerts. |
+| `ALERT_AFTER_FAILURES` | `3` | Consecutive failed cycles before the alert fires. |
+
+## Monitoring & alerts
+
+The service survives bad cycles by design — which also means it can fail
+quietly. Two signals make trouble visible:
+
+- **Status file.** After every cycle (success or failure) the service
+  atomically rewrites `STATUS_PATH`:
+
+  ```json
+  {
+    "timestamp": "2026-07-02T12:34:56.789012+00:00",
+    "ok": true,
+    "consecutive_failures": 0,
+    "last_error": null,
+    "uploaded": 1,
+    "highlights_pushed": 4,
+    "unmatched": 0,
+    "failed": 0
+  }
+  ```
+
+  `ok` and `consecutive_failures` tell you whether cycles are succeeding; a
+  `timestamp` older than a couple of `SYNC_INTERVAL_SECONDS` means the loop is
+  wedged. The counts appear on successful cycles (`uploaded` includes inbox
+  uploads). Wire it into any watcher you like, e.g.
+  `jq -e '.ok' ./data/status.json`.
+
+- **Webhook alert.** Set `ALERT_WEBHOOK_URL` to a Discord-compatible webhook
+  (the payload is `{"content": "..."}`) and the service posts one alert when
+  `ALERT_AFTER_FAILURES` cycles fail in a row — once per outage, not once per
+  cycle — plus a recovery message when syncing resumes. Webhook hiccups are
+  logged and never interrupt the sync loop.
 
 ## CLI
 
