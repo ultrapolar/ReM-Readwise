@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # Sync engine
     sync_interval_seconds: int = Field(default=900)
     state_path: str = Field(default="/data/state.json")
+    state_backups: int = Field(
+        default=3,
+        description="Rotating backups of the state file (state.json.1..N); 0 disables.",
+    )
     work_dir: str = Field(default="/data/work")
     inbox_dir: str = Field(default="/data/inbox")
     dry_run: bool = Field(default=False)

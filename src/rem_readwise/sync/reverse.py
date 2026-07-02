@@ -98,7 +98,11 @@ class ReverseSync:
         doc = self._doc_index.get(reader_id) or ReaderDocument(id=reader_id, title=remarkable_name)
 
         # Only push highlights we have not already sent for this document.
-        fresh = [hl for hl in highlights if not self._state.is_pushed(hl.dedup_key(reader_id))]
+        fresh = [
+            hl
+            for hl in highlights
+            if not self._state.is_pushed(reader_id, hl.dedup_key(reader_id))
+        ]
         if not fresh:
             return
 
@@ -112,7 +116,7 @@ class ReverseSync:
 
         self._readwise.create_highlights(payloads)
         for hl in fresh:
-            self._state.mark_pushed(hl.dedup_key(reader_id))
+            self._state.mark_pushed(reader_id, hl.dedup_key(reader_id))
         self._state.save()
         result.highlights_pushed += len(payloads)
         logger.info("Pushed %d highlight(s) for %r", len(payloads), remarkable_name)

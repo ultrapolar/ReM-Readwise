@@ -33,7 +33,10 @@ It runs as an always-on Docker service that performs a full sync on an interval.
 
 State is tracked in a small JSON file so the sync is **idempotent**: each PDF is
 uploaded once, and each highlight is pushed once (deduped by document + page +
-normalized text), no matter how often the service runs.
+normalized text), no matter how often the service runs. Rotating backups of the
+file are kept (`STATE_BACKUPS`), and entries for documents deleted from *both*
+Reader and the device are pruned automatically — a doc still present on either
+side always keeps its state.
 
 ## Quick start
 
@@ -91,6 +94,7 @@ All settings come from environment variables (see [`.env.example`](.env.example)
 | `SYNC_INTERVAL_SECONDS` | `900` | Seconds between full sync cycles. |
 | `RMAPI_CONFIG` | `/data/rmapi.conf` | reMarkable token file (keep on a volume). |
 | `STATE_PATH` | `/data/state.json` | Sync state (uploaded docs + pushed highlights). |
+| `STATE_BACKUPS` | `3` | Rotating backups of the state file (`state.json.1`…`.N`, refreshed once per cycle; `0` disables). |
 | `WORK_DIR` | `/data/work` | Scratch space for downloads. |
 | `INBOX_DIR` | `/data/inbox` | Drop local PDFs here to push them to the device (see below). |
 | `DRY_RUN` | `0` | `1` logs intended actions without changing anything. |

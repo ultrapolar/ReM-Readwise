@@ -6,12 +6,27 @@ Tracks two things so the sync is idempotent:
   under what document name), and
 * which highlights have already been pushed back to Readwise (by dedup key),
   so re-reading the same annotated PDF never creates duplicates.
+
+Pushed dedup keys are persisted as ``"<reader_id>:<dedup_key>"`` so that
+:meth:`SyncState.prune` can drop a document's keys along with its entry.
+Bare keys written by older versions still deduplicate (``dedup_key()``
+already hashes the reader id into the digest) but can never be attributed
+to a document, so pruning leaves them alone.
+
+Backups: losing or corrupting this file makes everything re-upload and
+re-push, so ``save()`` keeps rotating copies (``state.json.1`` is the newest,
+up to ``backups``). Rotation is *armed*, not automatic: the first ``save()``
+after construction — or after :meth:`arm_rotation` — snapshots the previous
+on-disk file, and later saves just overwrite in place. The engine re-arms
+once per sync cycle, so the several mid-cycle saves cannot churn through
+every backup within a single cycle.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import shutil
 import threading
 from pathlib import Path
 from typing import Any
@@ -20,9 +35,11 @@ logger = logging.getLogger(__name__)
 
 
 class SyncState:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, backups: int = 3) -> None:
         self._path = path
+        self._backups = max(0, backups)
         self._lock = threading.Lock()
+        self._rotation_armed = True
         self._data: dict[str, Any] = {"documents": {}, "pushed_highlights": []}
         self._pushed: set[str] = set()
         self._load()
@@ -44,9 +61,36 @@ class SyncState:
         with self._lock:
             self._data["pushed_highlights"] = sorted(self._pushed)
             self._path.parent.mkdir(parents=True, exist_ok=True)
+            if self._rotation_armed:
+                self._rotation_armed = False
+                self._rotate_backups()
             tmp = self._path.with_suffix(self._path.suffix + ".tmp")
             tmp.write_text(json.dumps(self._data, indent=2, sort_keys=True), "utf-8")
             tmp.replace(self._path)
+
+    def arm_rotation(self) -> None:
+        """Make the next ``save()`` snapshot the current file (see module docs)."""
+        with self._lock:
+            self._rotation_armed = True
+
+    def _rotate_backups(self) -> None:
+        """Shift ``state.json`` -> ``.1`` -> ... -> ``.{backups}``.
+
+        The live file is *copied* (not renamed) into ``.1`` so it stays in
+        place until ``save()`` atomically replaces it — a crash mid-rotation
+        never loses the current state. Backups are best-effort: a failure is
+        logged and must never block saving the real state.
+        """
+        if self._backups <= 0 or not self._path.exists():
+            return
+        try:
+            for i in range(self._backups - 1, 0, -1):
+                older = Path(f"{self._path}.{i}")
+                if older.exists():
+                    older.replace(f"{self._path}.{i + 1}")
+            shutil.copy2(self._path, f"{self._path}.1")
+        except OSError:
+            logger.warning("Could not rotate backups of %s", self._path, exc_info=True)
 
     # ── uploaded documents ────────────────────────────────────────────────
     def is_uploaded(self, reader_id: str) -> bool:
@@ -66,11 +110,40 @@ class SyncState:
         return None
 
     # ── pushed highlights ─────────────────────────────────────────────────
-    def is_pushed(self, dedup_key: str) -> bool:
-        return dedup_key in self._pushed
+    def is_pushed(self, reader_id: str, dedup_key: str) -> bool:
+        # Bare keys are what pre-namespace versions stored; still honor them.
+        return f"{reader_id}:{dedup_key}" in self._pushed or dedup_key in self._pushed
 
-    def mark_pushed(self, dedup_key: str) -> None:
-        self._pushed.add(dedup_key)
+    def mark_pushed(self, reader_id: str, dedup_key: str) -> None:
+        self._pushed.add(f"{reader_id}:{dedup_key}")
+
+    # ── pruning ───────────────────────────────────────────────────────────
+    def prune(self, active_reader_ids: set[str], device_names: set[str]) -> int:
+        """Forget documents that are gone from BOTH Reader and the device.
+
+        Conservative by design: a document still present on either side keeps
+        its entry and pushed dedup keys, so nothing can re-upload or re-push.
+        Legacy un-namespaced keys are unattributable and are always kept.
+        Returns the number of documents pruned.
+        """
+        with self._lock:
+            stale = {
+                reader_id
+                for reader_id, entry in self._data["documents"].items()
+                if reader_id not in active_reader_ids
+                and entry.get("remarkable_name") not in device_names
+            }
+            for reader_id in stale:
+                del self._data["documents"][reader_id]
+            if stale:
+                # Keys are "<reader_id>:<sha1-hex>"; the digest has no colon,
+                # so rsplit recovers the exact namespace (ids may contain ":").
+                self._pushed = {
+                    key
+                    for key in self._pushed
+                    if ":" not in key or key.rsplit(":", 1)[0] not in stale
+                }
+            return len(stale)
 
     @property
     def uploaded_count(self) -> int:
