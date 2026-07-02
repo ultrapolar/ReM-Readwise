@@ -68,6 +68,43 @@ def test_inbox_renames_unsafe_filenames_to_match_state(tmp_path):
     assert state.is_uploaded("inbox:Weird Name")
 
 
+def test_inbox_dry_run_counts_but_touches_nothing(tmp_path):
+    inbox = tmp_path / "inbox"
+    _write_pdf(inbox, "some-paper.pdf")
+    remarkable = FakeRemarkable()
+    state = SyncState(tmp_path / "state.json")
+
+    sync = InboxSync(remarkable, state, folder="Readwise", inbox_dir=inbox, dry_run=True)
+    result = sync.run()
+
+    assert result.uploaded == 1
+    assert remarkable.uploaded == []
+    assert not state.is_uploaded("inbox:some-paper")
+
+
+def test_inbox_upload_failure_is_counted_and_does_not_stop_the_run(tmp_path):
+    class ExplodingRemarkable(FakeRemarkable):
+        def upload_pdf(self, local_pdf: Path, folder: str):
+            if local_pdf.stem == "aaa-bad":
+                raise RuntimeError("device offline")
+            super().upload_pdf(local_pdf, folder)
+
+    inbox = tmp_path / "inbox"
+    _write_pdf(inbox, "aaa-bad.pdf")  # sorts first, fails
+    _write_pdf(inbox, "zzz-good.pdf")
+    remarkable = ExplodingRemarkable()
+    state = SyncState(tmp_path / "state.json")
+
+    result = InboxSync(remarkable, state, folder="Readwise", inbox_dir=inbox).run()
+
+    assert result.failed == 1
+    assert result.uploaded == 1
+    assert remarkable.uploaded == ["zzz-good"]
+    # The failed PDF stays unmarked so the next cycle retries it.
+    assert not state.is_uploaded("inbox:aaa-bad")
+    assert state.is_uploaded("inbox:zzz-good")
+
+
 def test_missing_inbox_dir_is_noop(tmp_path):
     sync = InboxSync(FakeRemarkable(), SyncState(tmp_path / "s.json"),
                      folder="Readwise", inbox_dir=tmp_path / "does-not-exist")
