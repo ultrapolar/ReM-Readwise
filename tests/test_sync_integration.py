@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from rem_readwise.config import Settings
 from rem_readwise.models import ReaderDocument, RmHighlight
 from rem_readwise.readwise import ReadwiseDownloadError
 from rem_readwise.remarkable.client import RemarkableEntry
 from rem_readwise.sync import reverse as reverse_mod
+from rem_readwise.sync.engine import SyncEngine
 from rem_readwise.sync.forward import ForwardSync
 from rem_readwise.sync.reverse import ReverseSync
 from rem_readwise.sync.state import SyncState
@@ -18,6 +20,12 @@ class FakeReadwise:
     def __init__(self, docs):
         self._docs = docs
         self.created: list[dict] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
 
     def list_documents(self, *, category=None, location=None):
         yield from self._docs
@@ -125,3 +133,53 @@ def test_unretrievable_pdf_is_skipped_and_retried(tmp_path):
     assert result.skipped_no_source == 1
     assert remarkable.uploaded == []
     assert not state.is_uploaded("99")  # left for a future retry
+
+
+# ── engine-level prune wiring ──────────────────────────────────────────────
+
+
+def _engine_settings(tmp_path, **overrides) -> Settings:
+    return Settings(
+        readwise_token="tok",
+        state_path=str(tmp_path / "state.json"),
+        status_path=str(tmp_path / "status.json"),
+        work_dir=str(tmp_path / "work"),
+        inbox_dir=str(tmp_path / "inbox"),
+        _env_file=None,
+        **overrides,
+    )
+
+
+def test_engine_prunes_state_for_docs_gone_from_both_sides(tmp_path, monkeypatch):
+    engine = SyncEngine(_engine_settings(tmp_path))
+    # A doc that has vanished from Reader AND from the device, plus its key.
+    engine.state.mark_uploaded("stale", "Stale Doc")
+    engine.state.mark_pushed("stale", "deadbeef")
+    engine.state.save()
+
+    doc = ReaderDocument(id="42", title="Fresh Paper")
+    monkeypatch.setattr(engine, "_make_readwise", lambda: FakeReadwise([doc]))
+    monkeypatch.setattr(engine, "_make_remarkable", lambda: FakeRemarkable())
+    monkeypatch.setattr(reverse_mod, "extract_highlights", lambda _archive: [])
+
+    engine.run_once()
+
+    assert not engine.state.is_uploaded("stale")
+    assert not engine.state.is_pushed("stale", "deadbeef")
+    assert engine.state.is_uploaded("42")  # the live doc's state survives
+    # ...and the pruned state is what got persisted.
+    reloaded = SyncState(tmp_path / "state.json")
+    assert not reloaded.is_uploaded("stale")
+    assert reloaded.is_uploaded("42")
+
+
+def test_engine_dry_run_never_prunes(tmp_path, monkeypatch):
+    engine = SyncEngine(_engine_settings(tmp_path, dry_run=True))
+    engine.state.mark_uploaded("stale", "Stale Doc")
+
+    monkeypatch.setattr(engine, "_make_readwise", lambda: FakeReadwise([]))
+    monkeypatch.setattr(engine, "_make_remarkable", lambda: FakeRemarkable())
+
+    engine.run_once()
+
+    assert engine.state.is_uploaded("stale")  # dry-run must not drop state

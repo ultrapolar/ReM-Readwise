@@ -29,7 +29,9 @@ class CycleResult:
 class SyncEngine:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._state = SyncState(Path(settings.state_path))
+        self._state = SyncState(
+            Path(settings.state_path), backups=settings.state_backups
+        )
         self._heartbeat = Heartbeat(
             Path(settings.status_path),
             webhook_url=settings.alert_webhook_url,
@@ -53,6 +55,10 @@ class SyncEngine:
         settings = self._settings
         work_dir = Path(settings.work_dir)
         remarkable = self._make_remarkable()
+
+        # One state backup per cycle: the first save() this cycle snapshots the
+        # previous state file; the later mid-cycle saves overwrite in place.
+        self._state.arm_rotation()
 
         if not remarkable.is_authenticated():
             raise RuntimeError(
@@ -106,7 +112,19 @@ class SyncEngine:
                 work_dir=work_dir,
                 dry_run=settings.dry_run,
             )
-            reverse_result = reverse.run(documents + inbox.documents())
+            inbox_docs = inbox.documents()
+            reverse_result = reverse.run(documents + inbox_docs)
+
+        if not settings.dry_run:
+            # Forget docs deleted from BOTH Reader and the device; anything
+            # still on either side keeps its state (see SyncState.prune).
+            active_ids = {doc.id for doc in documents} | {doc.id for doc in inbox_docs}
+            device_names = {
+                entry.name for entry in remarkable.list_folder(settings.remarkable_folder)
+            }
+            pruned = self._state.prune(active_ids, device_names)
+            if pruned:
+                logger.info("Pruned %d stale document(s) from sync state", pruned)
 
         self._state.save()
         return CycleResult(
