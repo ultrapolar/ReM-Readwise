@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rem_readwise.config import Settings
+from rem_readwise.heartbeat import Heartbeat
 from rem_readwise.readwise import ReadwiseClient
 from rem_readwise.remarkable import RemarkableClient
 from rem_readwise.sync.forward import ForwardResult, ForwardSync
@@ -29,6 +30,11 @@ class SyncEngine:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._state = SyncState(Path(settings.state_path))
+        self._heartbeat = Heartbeat(
+            Path(settings.status_path),
+            webhook_url=settings.alert_webhook_url,
+            alert_after=settings.alert_after_failures,
+        )
 
     def _make_readwise(self) -> ReadwiseClient:
         return ReadwiseClient(
@@ -113,9 +119,12 @@ class SyncEngine:
         logger.info("Starting sync service (every %d seconds)", interval)
         while True:
             try:
-                self.run_once()
-            except Exception:  # noqa: BLE001 - a service must survive a bad cycle
+                result = self.run_once()
+            except Exception as exc:  # noqa: BLE001 - a service must survive a bad cycle
                 logger.exception("Sync cycle failed; will retry next interval")
+                self._heartbeat.record_failure(exc)
+            else:
+                self._heartbeat.record_success(result)
             time.sleep(interval)
 
     @property

@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     dry_run: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 
+    # Heartbeat / alerting
+    status_path: str = Field(default="/data/status.json")
+    alert_webhook_url: str | None = Field(default=None)
+    alert_after_failures: int = Field(default=3)
+
     def require_readwise_token(self) -> str:
         if not self.readwise_token:
             raise RuntimeError(
