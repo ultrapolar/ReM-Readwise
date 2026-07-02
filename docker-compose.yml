@@ -1,5 +1,8 @@
 services:
   rem-readwise:
+    # Builds locally. To skip the build and pull the image CI publishes,
+    # replace these two lines with:
+    #   image: ghcr.io/ultrapolar/rem-readwise:latest
     build: .
     image: rem-readwise:latest
     container_name: rem-readwise
