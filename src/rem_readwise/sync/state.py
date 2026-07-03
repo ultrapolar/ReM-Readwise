@@ -55,6 +55,11 @@ class SyncState:
             self._data = {"documents": {}, "pushed_highlights": []}
         self._data.setdefault("documents", {})
         self._data.setdefault("pushed_highlights", [])
+        # The oldest state files stored a bare name string per document.
+        docs = self._data["documents"]
+        for reader_id, entry in list(docs.items()):
+            if isinstance(entry, str):
+                docs[reader_id] = {"remarkable_name": entry}
         self._pushed = set(self._data["pushed_highlights"])
 
     def save(self) -> None:
@@ -96,8 +101,13 @@ class SyncState:
     def is_uploaded(self, reader_id: str) -> bool:
         return reader_id in self._data["documents"]
 
-    def mark_uploaded(self, reader_id: str, remarkable_name: str) -> None:
-        self._data["documents"][reader_id] = {"remarkable_name": remarkable_name}
+    def mark_uploaded(
+        self, reader_id: str, remarkable_name: str, device_id: str | None = None
+    ) -> None:
+        entry: dict[str, Any] = {"remarkable_name": remarkable_name}
+        if device_id:
+            entry["device_id"] = device_id
+        self._data["documents"][reader_id] = entry
 
     def remarkable_name_for(self, reader_id: str) -> str | None:
         entry = self._data["documents"].get(reader_id)
@@ -108,6 +118,28 @@ class SyncState:
             if entry.get("remarkable_name") == remarkable_name:
                 return reader_id
         return None
+
+    # ── device ids (rename-proofing) ──────────────────────────────────────
+    def device_id_for(self, reader_id: str) -> str | None:
+        entry = self._data["documents"].get(reader_id)
+        return entry.get("device_id") if entry else None
+
+    def set_device_id(self, reader_id: str, device_id: str) -> None:
+        entry = self._data["documents"].get(reader_id)
+        if entry is not None and device_id:
+            entry["device_id"] = device_id
+
+    def reader_id_for_device_id(self, device_id: str) -> str | None:
+        for reader_id, entry in self._data["documents"].items():
+            if entry.get("device_id") == device_id:
+                return reader_id
+        return None
+
+    def rename_document(self, reader_id: str, new_name: str) -> None:
+        """Heal the stored name after an on-device rename (identified by device id)."""
+        entry = self._data["documents"].get(reader_id)
+        if entry is not None:
+            entry["remarkable_name"] = new_name
 
     # ── pushed highlights ─────────────────────────────────────────────────
     def is_pushed(self, reader_id: str, dedup_key: str) -> bool:

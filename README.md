@@ -36,7 +36,9 @@ uploaded once, and each highlight is pushed once (deduped by document + page +
 normalized text), no matter how often the service runs. Rotating backups of the
 file are kept (`STATE_BACKUPS`), and entries for documents deleted from *both*
 Reader and the device are pruned automatically — a doc still present on either
-side always keeps its state.
+side always keeps its state. Documents are also tracked by their **stable
+reMarkable cloud ID**, so renaming a PDF on the tablet doesn't orphan its
+highlights — the next cycle notices the rename and heals the mapping.
 
 ## Quick start
 

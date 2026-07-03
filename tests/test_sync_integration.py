@@ -43,6 +43,8 @@ class FakeReadwise:
 class FakeRemarkable:
     def __init__(self):
         self.uploaded: list[str] = []
+        self.device_ids: dict[str, str] = {}  # current name -> stable cloud id
+        self._id_counter = 0
 
     def is_authenticated(self):
         return True
@@ -52,6 +54,16 @@ class FakeRemarkable:
 
     def upload_pdf(self, local_pdf: Path, folder: str):
         self.uploaded.append(local_pdf.stem)
+        self._id_counter += 1
+        self.device_ids[local_pdf.stem] = f"dev-{self._id_counter:04d}"
+
+    def stat(self, remote_path: str):
+        return self.device_ids.get(remote_path.rsplit("/", 1)[-1])
+
+    def rename_on_device(self, old: str, new: str):
+        """Test helper: what happens when the user renames a doc on the tablet."""
+        self.device_ids[new] = self.device_ids.pop(old)
+        self.uploaded[self.uploaded.index(old)] = new
 
     def list_folder(self, folder):
         return [RemarkableEntry(name=name, is_dir=False) for name in self.uploaded]
@@ -183,3 +195,67 @@ def test_engine_dry_run_never_prunes(tmp_path, monkeypatch):
     engine.run_once()
 
     assert engine.state.is_uploaded("stale")  # dry-run must not drop state
+
+
+def test_rename_on_device_heals_mapping_and_keeps_highlights_flowing(
+    tmp_path, monkeypatch
+):
+    doc = ReaderDocument(id="42", title="On Photography", author="Susan Sontag")
+    readwise = FakeReadwise([doc])
+    remarkable = FakeRemarkable()
+    state = SyncState(tmp_path / "state.json")
+    work = tmp_path / "work"
+
+    ForwardSync(readwise, remarkable, state, folder="Readwise", work_dir=work).run([doc])
+    original_name = sanitize_name(doc.title)
+    assert state.device_id_for("42") == remarkable.device_ids[original_name]
+
+    # User renames the doc on the tablet; name-based lookup would now orphan it.
+    remarkable.rename_on_device(original_name, "sontag notes")
+
+    monkeypatch.setattr(
+        reverse_mod,
+        "extract_highlights",
+        lambda _archive: [RmHighlight(page_index=1, text="Renamed but found")],
+    )
+    reverse = ReverseSync(readwise, remarkable, state, folder="Readwise", work_dir=work)
+    rev = reverse.run([doc])
+
+    assert rev.documents_renamed == 1
+    assert rev.documents_unmatched == 0
+    assert rev.highlights_pushed == 1
+    assert state.remarkable_name_for("42") == "sontag notes"  # healed
+    # ...and persisted, so the next cycle needs no stat call at all.
+    assert SyncState(tmp_path / "state.json").remarkable_name_for("42") == "sontag notes"
+
+
+def test_foreign_device_doc_stays_unmatched(tmp_path, monkeypatch):
+    remarkable = FakeRemarkable()
+    remarkable.uploaded.append("Handwritten Journal")  # never uploaded by us, no id
+    state = SyncState(tmp_path / "state.json")
+
+    monkeypatch.setattr(reverse_mod, "extract_highlights", lambda _archive: [])
+    rev = ReverseSync(
+        FakeReadwise([]), remarkable, state, folder="Readwise", work_dir=tmp_path / "w"
+    ).run([])
+
+    assert rev.documents_unmatched == 1
+    assert rev.documents_renamed == 0
+
+
+def test_reverse_backfills_device_ids_for_pre_id_state(tmp_path, monkeypatch):
+    remarkable = FakeRemarkable()
+    state = SyncState(tmp_path / "state.json")
+
+    # Simulate a doc uploaded by a pre-device-id version: name known, no id.
+    remarkable.uploaded.append("Old Doc")
+    remarkable.device_ids["Old Doc"] = "dev-legacy"
+    state.mark_uploaded("7", "Old Doc")
+    assert state.device_id_for("7") is None
+
+    monkeypatch.setattr(reverse_mod, "extract_highlights", lambda _archive: [])
+    ReverseSync(
+        FakeReadwise([]), remarkable, state, folder="Readwise", work_dir=tmp_path / "w"
+    ).run([])
+
+    assert state.device_id_for("7") == "dev-legacy"
