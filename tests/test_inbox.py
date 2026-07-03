@@ -14,6 +14,9 @@ class FakeRemarkable:
     def upload_pdf(self, local_pdf: Path, folder: str):
         self.uploaded.append(local_pdf.stem)
 
+    def stat(self, remote_path: str):
+        return f"dev-{remote_path.rsplit('/', 1)[-1]}"
+
 
 def _write_pdf(directory: Path, name: str) -> Path:
     directory.mkdir(parents=True, exist_ok=True)

@@ -87,7 +87,8 @@ class InboxSync:
 
             try:
                 self._remarkable.upload_pdf(self._ensure_named(pdf, name), self._folder)
-                self._state.mark_uploaded(doc_id, name)
+                device_id = self._remarkable.stat(f"{self._folder}/{name}")
+                self._state.mark_uploaded(doc_id, name, device_id)
                 self._state.save()
                 result.uploaded += 1
             except Exception:  # noqa: BLE001 - keep going through the inbox

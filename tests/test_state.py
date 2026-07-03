@@ -158,3 +158,41 @@ def test_prune_never_touches_legacy_unnamespaced_keys(tmp_path):
 
     assert state.prune(set(), set()) == 1  # the doc entry itself is pruned...
     assert state.pushed_count == 1  # ...but the unattributable key survives
+
+
+def test_device_id_roundtrip_and_rename(tmp_path):
+    state = SyncState(tmp_path / "state.json")
+    state.mark_uploaded("42", "Paper", device_id="dev-1")
+
+    assert state.device_id_for("42") == "dev-1"
+    assert state.reader_id_for_device_id("dev-1") == "42"
+    assert state.reader_id_for_device_id("dev-404") is None
+
+    state.rename_document("42", "Paper v2")
+    assert state.remarkable_name_for("42") == "Paper v2"
+    assert state.reader_id_for_name("Paper") is None
+    assert state.device_id_for("42") == "dev-1"  # rename never touches the id
+
+
+def test_set_device_id_backfills_only_existing_entries(tmp_path):
+    state = SyncState(tmp_path / "state.json")
+    state.mark_uploaded("42", "Paper")
+    assert state.device_id_for("42") is None
+
+    state.set_device_id("42", "dev-9")
+    assert state.device_id_for("42") == "dev-9"
+
+    state.set_device_id("missing", "dev-0")  # no entry: silently ignored
+    assert state.reader_id_for_device_id("dev-0") is None
+
+
+def test_load_migrates_bare_string_document_entries(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text(
+        json.dumps({"documents": {"42": "Plain Name"}, "pushed_highlights": []}),
+        encoding="utf-8",
+    )
+    state = SyncState(path)
+    assert state.remarkable_name_for("42") == "Plain Name"
+    assert state.reader_id_for_name("Plain Name") == "42"
+    assert state.device_id_for("42") is None

@@ -11,8 +11,10 @@ a persistent volume so the container does not need re-pairing on restart.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -115,6 +117,20 @@ class RemarkableClient:
             return []
         return _parse_ls(proc.stdout)
 
+    def stat(self, remote_path: str) -> str | None:
+        """Return the stable cloud document ID for ``remote_path``, or None.
+
+        Document IDs survive on-device renames, which is what makes the sync
+        mapping rename-proof. Best-effort by design: rmapi's ``stat`` output
+        varies by version (Go struct dump vs JSON), and a doc that can't be
+        stat'ed simply falls back to name-based matching.
+        """
+        proc = self._run(["stat", _abs(remote_path)], check=False)
+        if proc.returncode != 0:
+            logger.debug("rmapi stat %r failed:\n%s", remote_path, proc.stderr.strip())
+            return None
+        return _parse_stat_id(proc.stdout)
+
     # ── transfers ─────────────────────────────────────────────────────────
     def upload_pdf(self, local_pdf: Path, dest_folder: str) -> None:
         """Upload a PDF into ``dest_folder``. The document name is the filename."""
@@ -148,6 +164,31 @@ def _abs(path: str) -> str:
     if not path or path == "/":
         return "/"
     return path if path.startswith("/") else f"/{path}"
+
+
+_STAT_ID_RE = re.compile(r"\bI[Dd]:\s*([0-9a-fA-F][0-9a-fA-F-]{7,})")
+
+
+def _parse_stat_id(output: str) -> str | None:
+    """Extract the document ID from ``rmapi stat`` output.
+
+    Newer rmapi builds print JSON; older ones print Go's ``%+v`` struct dump
+    (``&{ID:uuid Version:2 ...}``). Try JSON first, then the regex.
+    """
+    text = output.strip()
+    if text.startswith("{") or text.startswith("["):
+        try:
+            payload = json.loads(text)
+            if isinstance(payload, list):
+                payload = payload[0] if payload else {}
+            for key in ("ID", "Id", "id"):
+                value = payload.get(key)
+                if isinstance(value, str) and value:
+                    return value
+        except (json.JSONDecodeError, AttributeError, IndexError):
+            pass
+    match = _STAT_ID_RE.search(text)
+    return match.group(1) if match else None
 
 
 def _parse_ls(output: str) -> list[RemarkableEntry]:

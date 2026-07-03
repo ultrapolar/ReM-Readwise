@@ -21,6 +21,7 @@ class ReverseResult:
     highlights_found: int = 0
     highlights_pushed: int = 0
     documents_unmatched: int = 0
+    documents_renamed: int = 0
     failed: int = 0
 
 
@@ -58,14 +59,24 @@ class ReverseSync:
             shutil.rmtree(download_dir)
         download_dir.mkdir(parents=True, exist_ok=True)
 
+        healed = False
         for entry in self._remarkable.list_folder(self._folder):
             if entry.is_dir:
                 continue
-            reader_id = self._state.reader_id_for_name(entry.name)
+            reader_id = self._resolve_reader_id(entry.name, result)
             if not reader_id:
                 logger.debug("No Reader mapping for reMarkable doc %r; skipping", entry.name)
                 result.documents_unmatched += 1
                 continue
+
+            # Backfill the stable device id for docs uploaded before ids were
+            # tracked, so a future rename of them is survivable too. One stat
+            # per doc, once ever.
+            if self._state.device_id_for(reader_id) is None and not self._dry_run:
+                device_id = self._remarkable.stat(f"{self._folder}/{entry.name}")
+                if device_id:
+                    self._state.set_device_id(reader_id, device_id)
+                    healed = True
 
             result.documents_scanned += 1
             try:
@@ -74,14 +85,51 @@ class ReverseSync:
                 logger.exception("Failed processing reMarkable doc %r", entry.name)
                 result.failed += 1
 
+        if healed and not self._dry_run:
+            self._state.save()
+
         logger.info(
-            "Reverse sync: %d docs scanned, %d highlights found, %d pushed, %d unmatched",
+            "Reverse sync: %d docs scanned, %d highlights found, %d pushed, "
+            "%d unmatched, %d renamed",
             result.documents_scanned,
             result.highlights_found,
             result.highlights_pushed,
             result.documents_unmatched,
+            result.documents_renamed,
         )
         return result
+
+    def _resolve_reader_id(self, entry_name: str, result: ReverseResult) -> str | None:
+        """Map a device doc to its Reader id — by name, then by stable device id.
+
+        The device-id path is what makes renames survivable: when a name lookup
+        misses, one ``stat`` recovers the cloud id, and if we know that id the
+        doc was renamed on the device — heal the stored name and carry on. Docs
+        we never uploaded stat to an unknown id and stay unmatched as before.
+        """
+        reader_id = self._state.reader_id_for_name(entry_name)
+        if reader_id:
+            return reader_id
+
+        device_id = self._remarkable.stat(f"{self._folder}/{entry_name}")
+        if not device_id:
+            return None
+        reader_id = self._state.reader_id_for_device_id(device_id)
+        if not reader_id:
+            return None
+
+        old_name = self._state.remarkable_name_for(reader_id)
+        logger.info(
+            "Device doc renamed %r -> %r; healing the mapping (id %s)",
+            old_name,
+            entry_name,
+            device_id,
+        )
+        result.documents_renamed += 1
+        if not self._dry_run:
+            self._state.rename_document(reader_id, entry_name)
+            self._state.save()
+        return reader_id
 
     def _process_document(
         self,

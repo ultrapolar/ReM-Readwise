@@ -74,7 +74,10 @@ class ForwardSync:
                 local_pdf = pdf_dir / f"{name}.pdf"
                 self._readwise.download_document(doc, local_pdf)
                 self._remarkable.upload_pdf(local_pdf, self._folder)
-                self._state.mark_uploaded(doc.id, name)
+                # The stable cloud ID makes the mapping survive on-device
+                # renames; a failed stat just leaves name-based matching.
+                device_id = self._remarkable.stat(f"{self._folder}/{name}")
+                self._state.mark_uploaded(doc.id, name, device_id)
                 self._state.save()
                 result.uploaded += 1
                 local_pdf.unlink(missing_ok=True)
