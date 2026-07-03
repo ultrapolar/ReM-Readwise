@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from rem_readwise.config import Settings
 from rem_readwise.heartbeat import Heartbeat
 from rem_readwise.readwise import ReadwiseClient
 from rem_readwise.remarkable import RemarkableClient
+from rem_readwise.sync.cleanup import CleanupResult, CleanupSync
 from rem_readwise.sync.forward import ForwardResult, ForwardSync
 from rem_readwise.sync.inbox import InboxResult, InboxSync
 from rem_readwise.sync.reverse import ReverseResult, ReverseSync
@@ -24,6 +25,7 @@ class CycleResult:
     forward: ForwardResult
     inbox: InboxResult
     reverse: ReverseResult
+    cleanup: CleanupResult = field(default_factory=CleanupResult)
 
 
 class SyncEngine:
@@ -115,20 +117,41 @@ class SyncEngine:
             inbox_docs = inbox.documents()
             reverse_result = reverse.run(documents + inbox_docs)
 
+        active_ids = {doc.id for doc in documents} | {doc.id for doc in inbox_docs}
+        device_names = {
+            entry.name for entry in remarkable.list_folder(settings.remarkable_folder)
+        }
+
+        # Archive device copies of docs that left Reader. Runs after reverse
+        # (their last highlights were just pulled) and never touches docs whose
+        # reverse pass failed. Prune below reuses this pre-cleanup listing, so
+        # a doc archived this cycle keeps its state until the next cycle.
+        cleanup_result = CleanupResult()
+        if settings.archive_removed:
+            cleanup = CleanupSync(
+                remarkable,
+                self._state,
+                folder=settings.remarkable_folder,
+                archive_folder=settings.effective_archive_folder,
+                dry_run=settings.dry_run,
+            )
+            cleanup_result = cleanup.run(
+                active_ids, device_names, set(reverse_result.failed_names)
+            )
+
         if not settings.dry_run:
             # Forget docs deleted from BOTH Reader and the device; anything
             # still on either side keeps its state (see SyncState.prune).
-            active_ids = {doc.id for doc in documents} | {doc.id for doc in inbox_docs}
-            device_names = {
-                entry.name for entry in remarkable.list_folder(settings.remarkable_folder)
-            }
             pruned = self._state.prune(active_ids, device_names)
             if pruned:
                 logger.info("Pruned %d stale document(s) from sync state", pruned)
 
         self._state.save()
         return CycleResult(
-            forward=forward_result, inbox=inbox_result, reverse=reverse_result
+            forward=forward_result,
+            inbox=inbox_result,
+            reverse=reverse_result,
+            cleanup=cleanup_result,
         )
 
     def run_forever(self) -> None:

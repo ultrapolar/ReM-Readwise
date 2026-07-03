@@ -138,6 +138,12 @@ class RemarkableClient:
         self._run(["put", str(local_pdf), _abs(dest_folder)])
         logger.info("Uploaded %s to reMarkable:%s", local_pdf.name, dest_folder)
 
+    def move(self, remote_path: str, dest_folder: str) -> None:
+        """Move a document into ``dest_folder`` (created if needed)."""
+        self.ensure_folder(dest_folder)
+        self._run(["mv", _abs(remote_path), _abs(dest_folder)])
+        logger.info("Moved reMarkable:%s -> %s", remote_path, dest_folder)
+
     def download(self, remote_path: str, dest_dir: Path) -> Path:
         """Download a document (with its annotation .rm files) as a zip archive.
 

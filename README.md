@@ -40,6 +40,11 @@ side always keeps its state. Documents are also tracked by their **stable
 reMarkable cloud ID**, so renaming a PDF on the tablet doesn't orphan its
 highlights — the next cycle notices the rename and heals the mapping.
 
+Deletions propagate too: a doc that disappears from Reader (deleted, or moved
+out of the configured `READWISE_LOCATION`) has its device copy moved into
+`<folder>/Archive` on the next cycle — after its final highlights are pulled,
+never touching documents the tool didn't upload, and never deleting anything.
+
 ## Quick start
 
 ### 1. Get your credentials
@@ -93,6 +98,8 @@ All settings come from environment variables (see [`.env.example`](.env.example)
 | `READWISE_CATEGORY` | `pdf` | Which Reader category to send to the device. |
 | `READWISE_LOCATION` | _(all)_ | Optional Reader location filter (`new`, `later`, `archive`, …). |
 | `REMARKABLE_FOLDER` | `Readwise` | Folder on the tablet where PDFs are placed. |
+| `ARCHIVE_REMOVED` | `true` | Move device copies of docs gone from Reader into the archive folder (never deletes). |
+| `ARCHIVE_FOLDER` | `<folder>/Archive` | Where those archived copies go. |
 | `SYNC_INTERVAL_SECONDS` | `900` | Seconds between full sync cycles. |
 | `RMAPI_CONFIG` | `/data/rmapi.conf` | reMarkable token file (keep on a volume). |
 | `STATE_PATH` | `/data/state.json` | Sync state (uploaded docs + pushed highlights). |
