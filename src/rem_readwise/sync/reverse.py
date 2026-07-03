@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from rem_readwise.models import ReaderDocument
@@ -23,6 +23,9 @@ class ReverseResult:
     documents_unmatched: int = 0
     documents_renamed: int = 0
     failed: int = 0
+    # Device names whose processing failed this cycle; cleanup must not archive
+    # them — their highlights haven't been pulled yet.
+    failed_names: list[str] = field(default_factory=list)
 
 
 class ReverseSync:
@@ -84,6 +87,7 @@ class ReverseSync:
             except Exception:  # noqa: BLE001 - one bad doc shouldn't stop the rest
                 logger.exception("Failed processing reMarkable doc %r", entry.name)
                 result.failed += 1
+                result.failed_names.append(entry.name)
 
         if healed and not self._dry_run:
             self._state.save()

@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     remarkable_folder: str = Field(default="Readwise")
     rmapi_path: str = Field(default="rmapi")
     rmapi_config: str = Field(default="/data/rmapi.conf")
+    archive_removed: bool = Field(
+        default=True,
+        description="Move device copies of docs gone from Reader into the archive folder.",
+    )
+    archive_folder: str | None = Field(
+        default=None,
+        description="Where archived copies go; defaults to <REMARKABLE_FOLDER>/Archive.",
+    )
+
+    @property
+    def effective_archive_folder(self) -> str:
+        return self.archive_folder or f"{self.remarkable_folder}/Archive"
 
     # Sync engine
     sync_interval_seconds: int = Field(default=900)

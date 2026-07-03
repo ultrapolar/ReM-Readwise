@@ -119,6 +119,13 @@ class SyncState:
                 return reader_id
         return None
 
+    def all_documents(self) -> dict[str, str | None]:
+        """Snapshot of ``reader_id -> remarkable_name`` for every tracked doc."""
+        return {
+            reader_id: entry.get("remarkable_name")
+            for reader_id, entry in self._data["documents"].items()
+        }
+
     # ── device ids (rename-proofing) ──────────────────────────────────────
     def device_id_for(self, reader_id: str) -> str | None:
         entry = self._data["documents"].get(reader_id)

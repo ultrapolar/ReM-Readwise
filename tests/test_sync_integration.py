@@ -43,6 +43,7 @@ class FakeReadwise:
 class FakeRemarkable:
     def __init__(self):
         self.uploaded: list[str] = []
+        self.archived: list[tuple[str, str]] = []
         self.device_ids: dict[str, str] = {}  # current name -> stable cloud id
         self._id_counter = 0
 
@@ -64,6 +65,11 @@ class FakeRemarkable:
         """Test helper: what happens when the user renames a doc on the tablet."""
         self.device_ids[new] = self.device_ids.pop(old)
         self.uploaded[self.uploaded.index(old)] = new
+
+    def move(self, remote_path: str, dest_folder: str):
+        name = remote_path.rsplit("/", 1)[-1]
+        self.uploaded.remove(name)
+        self.archived.append((name, dest_folder))
 
     def list_folder(self, folder):
         return [RemarkableEntry(name=name, is_dir=False) for name in self.uploaded]
@@ -259,3 +265,32 @@ def test_reverse_backfills_device_ids_for_pre_id_state(tmp_path, monkeypatch):
     ).run([])
 
     assert state.device_id_for("7") == "dev-legacy"
+
+
+def test_doc_deleted_in_reader_is_archived_then_pruned_next_cycle(
+    tmp_path, monkeypatch
+):
+    engine = SyncEngine(_engine_settings(tmp_path))
+    doc = ReaderDocument(id="42", title="Short Lived")
+    remarkable = FakeRemarkable()
+    monkeypatch.setattr(engine, "_make_remarkable", lambda: remarkable)
+    monkeypatch.setattr(reverse_mod, "extract_highlights", lambda _archive: [])
+
+    # Cycle 1: doc exists in Reader and lands on the device.
+    monkeypatch.setattr(engine, "_make_readwise", lambda: FakeReadwise([doc]))
+    engine.run_once()
+    name = sanitize_name(doc.title)
+    assert name in remarkable.uploaded
+
+    # Cycle 2: doc deleted in Reader -> device copy archived, state kept.
+    monkeypatch.setattr(engine, "_make_readwise", lambda: FakeReadwise([]))
+    result = engine.run_once()
+    assert result.cleanup.archived == 1
+    assert name not in remarkable.uploaded  # moved out of the sync folder
+    assert remarkable.archived == [(name, "Readwise/Archive")]
+    assert engine.state.is_uploaded("42")  # pre-cleanup listing shields it
+
+    # Cycle 3: gone from both sides -> state pruned.
+    result = engine.run_once()
+    assert result.cleanup.archived == 0
+    assert not engine.state.is_uploaded("42")
