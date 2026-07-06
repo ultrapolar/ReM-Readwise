@@ -38,6 +38,13 @@ class Settings(BaseSettings):
         description="Where archived copies go; defaults to <REMARKABLE_FOLDER>/Archive.",
     )
 
+    color_tags: str = Field(
+        default="",
+        description=(
+            'Map highlighter colors to Readwise tags, e.g. "green=important, blue=question". '
+            "Unmapped non-yellow colors tag as the color name; yellow stays untagged."
+        ),
+    )
     finish_to_reader: bool = Field(
         default=True,
         description="Docs moved to the Done folder on the tablet get archived in Reader.",

@@ -40,6 +40,7 @@ class ReverseSync:
         work_dir: Path,
         dry_run: bool = False,
         extra_folders: list[str] | None = None,
+        color_tags: dict[str, str] | None = None,
     ) -> None:
         self._readwise = readwise
         self._remarkable = remarkable
@@ -49,6 +50,7 @@ class ReverseSync:
         self._folders = [folder, *(extra_folders or [])]
         self._work_dir = work_dir
         self._dry_run = dry_run
+        self._color_tags = color_tags
         self._doc_index: dict[str, ReaderDocument] = {}
 
     def run(self, documents: list[ReaderDocument] | None = None) -> ReverseResult:
@@ -137,7 +139,7 @@ class ReverseSync:
         if not fresh:
             return
 
-        payloads = build_highlight_payloads(doc, fresh)
+        payloads = build_highlight_payloads(doc, fresh, color_tags=self._color_tags)
         if self._dry_run:
             logger.info(
                 "[dry-run] would push %d highlight(s) for %r", len(payloads), remarkable_name

@@ -107,6 +107,7 @@ All settings come from environment variables (see [`.env.example`](.env.example)
 | `ARCHIVE_FOLDER` | `<folder>/Archive` | Where those archived copies go. |
 | `FINISH_TO_READER` | `true` | Docs moved into the Done folder on the tablet get archived in Reader. |
 | `DONE_FOLDER` | `<folder>/Done` | The finish queue on the tablet. |
+| `COLOR_TAGS` | _(none)_ | Map highlighter colors to Readwise tags, e.g. `green=important, blue=question`. |
 | `SYNC_INTERVAL_SECONDS` | `900` | Seconds between full sync cycles. |
 | `RMAPI_CONFIG` | `/data/rmapi.conf` | reMarkable token file (keep on a volume). |
 | `STATE_PATH` | `/data/state.json` | Sync state (uploaded docs + pushed highlights). |

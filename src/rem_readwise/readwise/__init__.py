@@ -5,6 +5,7 @@ from rem_readwise.readwise.client import (
     ReadwiseDownloadError,
     ReadwiseError,
     build_highlight_payloads,
+    parse_color_tags,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "ReadwiseDownloadError",
     "ReadwiseError",
     "build_highlight_payloads",
+    "parse_color_tags",
 ]

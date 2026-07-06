@@ -9,7 +9,7 @@ from pathlib import Path
 
 from rem_readwise.config import Settings
 from rem_readwise.heartbeat import Heartbeat
-from rem_readwise.readwise import ReadwiseClient
+from rem_readwise.readwise import ReadwiseClient, parse_color_tags
 from rem_readwise.remarkable import RemarkableClient
 from rem_readwise.sync.cleanup import CleanupResult, CleanupSync
 from rem_readwise.sync.finish import FinishResult, FinishSync
@@ -120,6 +120,7 @@ class SyncEngine:
                 extra_folders=(
                     [settings.effective_done_folder] if settings.finish_to_reader else None
                 ),
+                color_tags=parse_color_tags(settings.color_tags),
             )
             inbox_docs = inbox.documents()
             reverse_result = reverse.run(documents + inbox_docs)

@@ -63,17 +63,57 @@ def _looks_like_pdf(path: Path) -> bool:
         return False
 
 
+def parse_color_tags(spec: str) -> dict[str, str]:
+    """Parse a ``COLOR_TAGS`` spec like ``"green=important, blue=question"``.
+
+    Keys are highlighter colors (lower-cased); values are the Readwise tag to
+    apply. Malformed entries are skipped with a warning rather than rejected —
+    a typo in one mapping shouldn't take the sync down.
+    """
+    mapping: dict[str, str] = {}
+    for chunk in spec.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        color, sep, tag = chunk.partition("=")
+        color, tag = color.strip().lower(), tag.strip().lstrip(".")
+        if not sep or not color or not tag:
+            logger.warning("Ignoring malformed COLOR_TAGS entry %r", chunk)
+            continue
+        mapping[color] = tag.replace(" ", "-")
+    return mapping
+
+
+def _color_note(color: str | None, color_tags: dict[str, str] | None) -> str | None:
+    """The inline-tag note for a highlight color, or None for no tag.
+
+    Explicit mappings win (and may tag yellow too); otherwise any non-yellow
+    color becomes a tag named after itself, and yellow — the default marker —
+    stays untagged.
+    """
+    if not color:
+        return None
+    color = color.lower()
+    if color_tags and color in color_tags:
+        return f".{color_tags[color]}"
+    if color != "yellow":
+        return f".{color}"
+    return None
+
+
 def build_highlight_payloads(
     doc: ReaderDocument,
     highlights: list[RmHighlight],
     *,
     highlighted_at: dt.datetime | None = None,
+    color_tags: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Turn device highlights into Readwise highlight-create payloads.
 
     Pure function (no I/O) so it is easy to unit test. The page number drives
     ``location`` with ``location_type="page"`` so Readwise can anchor each
-    snippet to the right page of the original PDF.
+    snippet to the right page of the original PDF. Highlight colors become
+    Readwise inline tags via the note field (see ``_color_note``).
     """
     stamp = (highlighted_at or dt.datetime.now(dt.UTC)).isoformat()
     payloads: list[dict[str, Any]] = []
@@ -94,8 +134,9 @@ def build_highlight_payloads(
             payload["author"] = doc.author
         if doc.best_source:
             payload["source_url"] = doc.best_source
-        if hl.color and hl.color.lower() != "yellow":
-            payload["note"] = f".{hl.color}"  # Readwise tag for the highlight color
+        note = _color_note(hl.color, color_tags)
+        if note:
+            payload["note"] = note
         payloads.append(payload)
     return payloads
 

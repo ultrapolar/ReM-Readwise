@@ -58,3 +58,31 @@ def test_missing_source_url_omits_field():
     payloads = build_highlight_payloads(doc, [RmHighlight(page_index=0, text="hi")])
     assert "source_url" not in payloads[0]
     assert "author" not in payloads[0]
+
+
+def test_color_tag_mapping_overrides_default():
+    doc = ReaderDocument(id="1", title="T")
+    highlights = [
+        RmHighlight(page_index=0, text="a", color="green"),
+        RmHighlight(page_index=0, text="b", color="blue"),
+        RmHighlight(page_index=0, text="c", color="yellow"),
+    ]
+    payloads = build_highlight_payloads(
+        doc, highlights, color_tags={"green": "important", "yellow": "review"}
+    )
+    notes = {p["text"]: p.get("note") for p in payloads}
+    assert notes["a"] == ".important"  # explicit mapping wins
+    assert notes["b"] == ".blue"  # unmapped non-yellow keeps the color name
+    assert notes["c"] == ".review"  # yellow can be opted in
+
+
+def test_parse_color_tags_is_lenient():
+    from rem_readwise.readwise import parse_color_tags
+
+    assert parse_color_tags("green=important, blue = open question") == {
+        "green": "important",
+        "blue": "open-question",
+    }
+    assert parse_color_tags("") == {}
+    # Malformed entries are skipped, valid ones survive.
+    assert parse_color_tags("nonsense, pink=.followup") == {"pink": "followup"}
