@@ -38,9 +38,22 @@ class Settings(BaseSettings):
         description="Where archived copies go; defaults to <REMARKABLE_FOLDER>/Archive.",
     )
 
+    finish_to_reader: bool = Field(
+        default=True,
+        description="Docs moved to the Done folder on the tablet get archived in Reader.",
+    )
+    done_folder: str | None = Field(
+        default=None,
+        description="Finish queue on the tablet; defaults to <REMARKABLE_FOLDER>/Done.",
+    )
+
     @property
     def effective_archive_folder(self) -> str:
         return self.archive_folder or f"{self.remarkable_folder}/Archive"
+
+    @property
+    def effective_done_folder(self) -> str:
+        return self.done_folder or f"{self.remarkable_folder}/Done"
 
     # Sync engine
     sync_interval_seconds: int = Field(default=900)

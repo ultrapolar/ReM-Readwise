@@ -12,6 +12,7 @@ from rem_readwise.heartbeat import Heartbeat
 from rem_readwise.readwise import ReadwiseClient
 from rem_readwise.remarkable import RemarkableClient
 from rem_readwise.sync.cleanup import CleanupResult, CleanupSync
+from rem_readwise.sync.finish import FinishResult, FinishSync
 from rem_readwise.sync.forward import ForwardResult, ForwardSync
 from rem_readwise.sync.inbox import InboxResult, InboxSync
 from rem_readwise.sync.reverse import ReverseResult, ReverseSync
@@ -26,6 +27,7 @@ class CycleResult:
     inbox: InboxResult
     reverse: ReverseResult
     cleanup: CleanupResult = field(default_factory=CleanupResult)
+    finish: FinishResult = field(default_factory=FinishResult)
 
 
 class SyncEngine:
@@ -113,9 +115,28 @@ class SyncEngine:
                 folder=settings.remarkable_folder,
                 work_dir=work_dir,
                 dry_run=settings.dry_run,
+                # Scan the Done folder too, so a finished doc's last highlights
+                # are pulled before the finish pass archives it.
+                extra_folders=(
+                    [settings.effective_done_folder] if settings.finish_to_reader else None
+                ),
             )
             inbox_docs = inbox.documents()
             reverse_result = reverse.run(documents + inbox_docs)
+
+            # Finish queue: docs the user moved to Done get archived in Reader
+            # and their device copy tidied into the archive folder.
+            finish_result = FinishResult()
+            if settings.finish_to_reader:
+                finish = FinishSync(
+                    readwise,
+                    remarkable,
+                    self._state,
+                    done_folder=settings.effective_done_folder,
+                    archive_folder=settings.effective_archive_folder,
+                    dry_run=settings.dry_run,
+                )
+                finish_result = finish.run(set(reverse_result.failed_names))
 
         active_ids = {doc.id for doc in documents} | {doc.id for doc in inbox_docs}
         device_names = {
@@ -152,6 +173,7 @@ class SyncEngine:
             inbox=inbox_result,
             reverse=reverse_result,
             cleanup=cleanup_result,
+            finish=finish_result,
         )
 
     def run_forever(self) -> None:

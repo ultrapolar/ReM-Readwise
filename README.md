@@ -45,6 +45,11 @@ out of the configured `READWISE_LOCATION`) has its device copy moved into
 `<folder>/Archive` on the next cycle — after its final highlights are pulled,
 never touching documents the tool didn't upload, and never deleting anything.
 
+And the loop closes in the other direction: **move a finished doc into
+`<folder>/Done` on the tablet** and the next cycle pulls its remaining
+highlights, **archives it in Readwise Reader**, and tidies the device copy
+into `<folder>/Archive` — the tablet is the reading queue.
+
 ## Quick start
 
 ### 1. Get your credentials
@@ -100,6 +105,8 @@ All settings come from environment variables (see [`.env.example`](.env.example)
 | `REMARKABLE_FOLDER` | `Readwise` | Folder on the tablet where PDFs are placed. |
 | `ARCHIVE_REMOVED` | `true` | Move device copies of docs gone from Reader into the archive folder (never deletes). |
 | `ARCHIVE_FOLDER` | `<folder>/Archive` | Where those archived copies go. |
+| `FINISH_TO_READER` | `true` | Docs moved into the Done folder on the tablet get archived in Reader. |
+| `DONE_FOLDER` | `<folder>/Done` | The finish queue on the tablet. |
 | `SYNC_INTERVAL_SECONDS` | `900` | Seconds between full sync cycles. |
 | `RMAPI_CONFIG` | `/data/rmapi.conf` | reMarkable token file (keep on a volume). |
 | `STATE_PATH` | `/data/state.json` | Sync state (uploaded docs + pushed highlights). |

@@ -239,6 +239,22 @@ class ReadwiseClient:
             created.extend(self._post_highlights(batch))
         return created
 
+    # ── Reader: update a document ─────────────────────────────────────────
+    @retry(
+        retry=retry_if_exception(_is_transient),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
+        stop=stop_after_attempt(5),
+        reraise=True,
+    )
+    def archive_document(self, doc_id: str) -> None:
+        """Move a Reader document to the ``archive`` location (v3 update)."""
+        resp = self._client.patch(
+            f"{self._base_url}/v3/update/{doc_id}/",
+            headers=self._headers,
+            json={"location": "archive"},
+        )
+        resp.raise_for_status()
+
 
 def _parse_document(raw: dict[str, Any]) -> ReaderDocument:
     return ReaderDocument(
