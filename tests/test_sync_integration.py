@@ -41,11 +41,19 @@ class FakeReadwise:
 
 
 class FakeRemarkable:
+    PRIMARY_FOLDER = "Readwise"
+
     def __init__(self):
-        self.uploaded: list[str] = []
+        self.uploaded: list[str] = []  # contents of the primary sync folder
+        self.folders: dict[str, list[str]] = {}  # any other folder -> names
         self.archived: list[tuple[str, str]] = []
         self.device_ids: dict[str, str] = {}  # current name -> stable cloud id
         self._id_counter = 0
+
+    def _contents(self, folder: str) -> list[str]:
+        if folder == self.PRIMARY_FOLDER:
+            return self.uploaded
+        return self.folders.setdefault(folder, [])
 
     def is_authenticated(self):
         return True
@@ -67,12 +75,18 @@ class FakeRemarkable:
         self.uploaded[self.uploaded.index(old)] = new
 
     def move(self, remote_path: str, dest_folder: str):
-        name = remote_path.rsplit("/", 1)[-1]
-        self.uploaded.remove(name)
+        src_folder, name = remote_path.rsplit("/", 1)
+        self._contents(src_folder).remove(name)
+        self._contents(dest_folder).append(name)
         self.archived.append((name, dest_folder))
 
+    def move_to_done(self, name: str):
+        """Test helper: the user drags a finished doc into the Done folder."""
+        self.move(f"{self.PRIMARY_FOLDER}/{name}", f"{self.PRIMARY_FOLDER}/Done")
+        self.archived.pop()  # user action, not tool bookkeeping
+
     def list_folder(self, folder):
-        return [RemarkableEntry(name=name, is_dir=False) for name in self.uploaded]
+        return [RemarkableEntry(name=name, is_dir=False) for name in self._contents(folder)]
 
     def download(self, remote_path: str, dest_dir: Path) -> Path:
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -294,3 +308,102 @@ def test_doc_deleted_in_reader_is_archived_then_pruned_next_cycle(
     result = engine.run_once()
     assert result.cleanup.archived == 0
     assert not engine.state.is_uploaded("42")
+
+
+class ArchivingFakeReadwise(FakeReadwise):
+    def __init__(self, docs):
+        super().__init__(docs)
+        self.reader_archived: list[str] = []
+        self.archive_fails = False
+
+    def archive_document(self, doc_id: str):
+        if self.archive_fails:
+            raise RuntimeError("Reader API down")
+        self.reader_archived.append(doc_id)
+
+
+def test_done_folder_doc_archives_in_reader_with_final_highlights(
+    tmp_path, monkeypatch
+):
+    engine = SyncEngine(_engine_settings(tmp_path))
+    doc = ReaderDocument(id="42", title="Finished Book")
+    remarkable = FakeRemarkable()
+    readwise = ArchivingFakeReadwise([doc])
+    monkeypatch.setattr(engine, "_make_remarkable", lambda: remarkable)
+    monkeypatch.setattr(engine, "_make_readwise", lambda: readwise)
+    monkeypatch.setattr(reverse_mod, "extract_highlights", lambda _archive: [])
+
+    engine.run_once()
+    name = sanitize_name(doc.title)
+
+    # User finishes the doc and drags it to Done; a last highlight exists.
+    remarkable.move_to_done(name)
+    monkeypatch.setattr(
+        reverse_mod,
+        "extract_highlights",
+        lambda _archive: [RmHighlight(page_index=9, text="Final thought")],
+    )
+
+    result = engine.run_once()
+
+    # The last highlight was pulled from the Done folder before archiving...
+    assert any(p["text"] == "Final thought" for p in readwise.created)
+    # ...the Reader doc is archived, and the device copy tidied to Archive.
+    assert readwise.reader_archived == ["42"]
+    assert result.finish.archived_in_reader == 1
+    assert remarkable.folders["Readwise/Done"] == []
+    assert name in remarkable.folders["Readwise/Archive"]
+
+
+def test_done_folder_reader_failure_leaves_doc_for_retry(tmp_path, monkeypatch):
+    engine = SyncEngine(_engine_settings(tmp_path))
+    doc = ReaderDocument(id="42", title="Flaky Finish")
+    remarkable = FakeRemarkable()
+    readwise = ArchivingFakeReadwise([doc])
+    monkeypatch.setattr(engine, "_make_remarkable", lambda: remarkable)
+    monkeypatch.setattr(engine, "_make_readwise", lambda: readwise)
+    monkeypatch.setattr(reverse_mod, "extract_highlights", lambda _archive: [])
+
+    engine.run_once()
+    name = sanitize_name(doc.title)
+    remarkable.move_to_done(name)
+
+    readwise.archive_fails = True
+    result = engine.run_once()
+    assert result.finish.failed == 1
+    assert name in remarkable.folders["Readwise/Done"]  # stays for retry
+
+    readwise.archive_fails = False
+    result = engine.run_once()
+    assert result.finish.archived_in_reader == 1
+    assert readwise.reader_archived == ["42"]
+    assert name in remarkable.folders["Readwise/Archive"]
+
+
+def test_foreign_doc_in_done_is_left_alone(tmp_path, monkeypatch):
+    engine = SyncEngine(_engine_settings(tmp_path))
+    remarkable = FakeRemarkable()
+    readwise = ArchivingFakeReadwise([])
+    remarkable.folders["Readwise/Done"] = ["Handwritten Journal"]
+    monkeypatch.setattr(engine, "_make_remarkable", lambda: remarkable)
+    monkeypatch.setattr(engine, "_make_readwise", lambda: readwise)
+    monkeypatch.setattr(reverse_mod, "extract_highlights", lambda _archive: [])
+
+    result = engine.run_once()
+
+    assert result.finish.unmatched == 1
+    assert readwise.reader_archived == []
+    assert remarkable.folders["Readwise/Done"] == ["Handwritten Journal"]
+
+
+def test_finish_disabled_skips_done_folder(tmp_path, monkeypatch):
+    engine = SyncEngine(_engine_settings(tmp_path, finish_to_reader=False))
+    remarkable = FakeRemarkable()
+    readwise = ArchivingFakeReadwise([])
+    remarkable.folders["Readwise/Done"] = ["Whatever"]
+    monkeypatch.setattr(engine, "_make_remarkable", lambda: remarkable)
+    monkeypatch.setattr(engine, "_make_readwise", lambda: readwise)
+    monkeypatch.setattr(reverse_mod, "extract_highlights", lambda _archive: [])
+
+    result = engine.run_once()
+    assert result.finish.considered == 0
