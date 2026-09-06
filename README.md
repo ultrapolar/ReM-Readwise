@@ -156,6 +156,13 @@ in the sync state. Highlight it on the device and the highlights flow back to
 Readwise titled after the file (e.g. `some-paper`). Because the tool is the
 uploader, the on-device PDF is byte-identical to your file, so page numbers line
 up exactly. Each file is uploaded once (tracked by name in the state).
+- **Device names are kept unique.** The reMarkable document name is the only
+  link from an annotated file back to its Reader document, so two documents
+  that sanitize to the same name ("Notes", the same paper saved twice, an inbox
+  file matching a Reader title) get `Notes`, `Notes (2)`, `Notes (3)`... on the
+  device. The Readwise title is unaffected. If an older `state.json` already
+  maps one name to several documents, that document is skipped with a warning
+  rather than guessed at; remove the stale entries from `state.json` to fix it.
 - **reMarkable software 3.x (`.rm` v6)** is the supported on-device format.
 - This uses the **unofficial** reMarkable Cloud API via `rmapi`. Keep backups of
   important documents.

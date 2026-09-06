@@ -64,7 +64,9 @@ class ForwardSync:
                 result.skipped_existing += 1
                 continue
 
-            name = sanitize_name(doc.title)
+            # The device name is the only link back to this Reader doc on the
+            # reverse pass, so it must not collide with another document's.
+            name = self._state.unique_remarkable_name(sanitize_name(doc.title), doc.id)
             if self._dry_run:
                 logger.info("[dry-run] would upload %r -> reMarkable:%s", name, self._folder)
                 result.uploaded += 1

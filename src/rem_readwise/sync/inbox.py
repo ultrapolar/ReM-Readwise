@@ -71,13 +71,32 @@ class InboxSync:
             return result
         self._remarkable.ensure_folder(self._folder)
 
+        seen_ids: dict[str, Path] = {}
         for pdf in self._iter_pdfs():
             result.considered += 1
-            name = sanitize_name(pdf.stem)
-            doc_id = f"{INBOX_DOC_PREFIX}{name}"
+            title = sanitize_name(pdf.stem)
+            doc_id = f"{INBOX_DOC_PREFIX}{title}"
+
+            # Two inbox files whose stems sanitize to the same title would share
+            # an id; only the first is a document, the rest are refused loudly.
+            if doc_id in seen_ids:
+                logger.warning(
+                    "Inbox PDF %r sanitizes to the same title as %r (%r); rename one of them",
+                    pdf.name,
+                    seen_ids[doc_id].name,
+                    title,
+                )
+                result.failed += 1
+                continue
+            seen_ids[doc_id] = pdf
+
             if self._state.is_uploaded(doc_id):
                 result.skipped_existing += 1
                 continue
+
+            # An inbox file may share its title with a Reader document already
+            # on the device; the on-device name must still be unique.
+            name = self._state.unique_remarkable_name(title, doc_id)
 
             if self._dry_run:
                 logger.info("[dry-run] would upload inbox PDF %r -> reMarkable:%s",

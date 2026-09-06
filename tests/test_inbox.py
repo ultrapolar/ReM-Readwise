@@ -74,3 +74,34 @@ def test_missing_inbox_dir_is_noop(tmp_path):
     result = sync.run()
     assert result.considered == 0
     assert result.uploaded == 0
+
+
+def test_inbox_file_sharing_a_title_with_a_reader_doc_gets_a_unique_device_name(tmp_path):
+    inbox = tmp_path / "inbox"
+    _write_pdf(inbox, "Notes.pdf")
+    remarkable = FakeRemarkable()
+    state = SyncState(tmp_path / "state.json")
+    state.mark_uploaded("12345", "Notes")  # a Reader doc already on the device
+
+    result = InboxSync(remarkable, state, folder="Readwise", inbox_dir=inbox).run()
+
+    assert result.uploaded == 1
+    assert remarkable.uploaded == ["Notes (2)"]
+    assert state.remarkable_name_for("inbox:Notes") == "Notes (2)"
+    assert state.reader_id_for_name("Notes") == "12345"
+    assert state.reader_id_for_name("Notes (2)") == "inbox:Notes"
+
+
+def test_two_inbox_files_with_the_same_sanitized_title_are_not_merged(tmp_path, caplog):
+    inbox = tmp_path / "inbox"
+    _write_pdf(inbox, "A:B.pdf")
+    _write_pdf(inbox, "A B.pdf")  # both sanitize to "A B"
+    remarkable = FakeRemarkable()
+    state = SyncState(tmp_path / "state.json")
+
+    result = InboxSync(remarkable, state, folder="Readwise", inbox_dir=inbox).run()
+
+    assert result.uploaded == 1
+    assert result.failed == 1
+    assert remarkable.uploaded == ["A B"]
+    assert any("rename one of them" in r.getMessage() for r in caplog.records)

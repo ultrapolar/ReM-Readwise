@@ -125,3 +125,48 @@ def test_unretrievable_pdf_is_skipped_and_retried(tmp_path):
     assert result.skipped_no_source == 1
     assert remarkable.uploaded == []
     assert not state.is_uploaded("99")  # left for a future retry
+
+
+def test_two_docs_with_the_same_title_keep_their_highlights_apart(tmp_path, monkeypatch):
+    """The reverse pass must never attach one document's highlights to the other."""
+    first = ReaderDocument(id="1", title="Notes", source_url="https://example.com/1.pdf")
+    second = ReaderDocument(id="2", title="Notes", source_url="https://example.com/2.pdf")
+    readwise = FakeReadwise([first, second])
+    remarkable = FakeRemarkable()
+    state = SyncState(tmp_path / "state.json")
+    work = tmp_path / "work"
+
+    fwd = ForwardSync(readwise, remarkable, state, folder="Readwise", work_dir=work).run(
+        [first, second]
+    )
+    assert fwd.uploaded == 2
+    assert remarkable.uploaded == ["Notes", "Notes (2)"]
+    assert state.reader_id_for_name("Notes") == "1"
+    assert state.reader_id_for_name("Notes (2)") == "2"
+
+    # Highlights differ per device document.
+    by_name = {
+        "Notes": [RmHighlight(page_index=0, text="from the first")],
+        "Notes (2)": [RmHighlight(page_index=0, text="from the second")],
+    }
+    downloaded: list[str] = []
+
+    def fake_download(remote_path, dest_dir):
+        downloaded.append(remote_path.rsplit("/", 1)[1])
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        archive = dest_dir / "doc.rmdoc"
+        archive.write_bytes(b"archive")
+        return archive
+
+    remarkable.download = fake_download
+    monkeypatch.setattr(reverse_mod, "extract_highlights", lambda _a: by_name[downloaded[-1]])
+
+    rev = ReverseSync(readwise, remarkable, state, folder="Readwise", work_dir=work).run(
+        [first, second]
+    )
+    assert rev.highlights_pushed == 2
+    pushed = {p["text"]: p["source_url"] for p in readwise.created}
+    assert pushed == {
+        "from the first": "https://example.com/1.pdf",
+        "from the second": "https://example.com/2.pdf",
+    }

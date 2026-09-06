@@ -37,3 +37,40 @@ def test_corrupt_state_starts_fresh(tmp_path):
     state = SyncState(path)  # should not raise
     assert state.uploaded_count == 0
     assert state.pushed_count == 0
+
+
+def test_unique_name_disambiguates_between_different_documents(tmp_path):
+    state = SyncState(tmp_path / "state.json")
+    assert state.unique_remarkable_name("Notes", "doc1") == "Notes"
+    state.mark_uploaded("doc1", "Notes")
+
+    # A different Reader doc with the same sanitized title gets a suffix...
+    assert state.unique_remarkable_name("Notes", "doc2") == "Notes (2)"
+    state.mark_uploaded("doc2", "Notes (2)")
+    assert state.unique_remarkable_name("Notes", "doc3") == "Notes (3)"
+
+    # ...while the owner keeps its own name (re-runs stay idempotent).
+    assert state.unique_remarkable_name("Notes", "doc1") == "Notes"
+    assert state.unique_remarkable_name("Notes (2)", "doc2") == "Notes (2)"
+
+
+def test_unique_name_does_not_stack_suffixes(tmp_path):
+    state = SyncState(tmp_path / "state.json")
+    state.mark_uploaded("a", "Paper (2)")
+    assert state.unique_remarkable_name("Paper (2)", "b") == "Paper (3)"
+
+
+def test_ambiguous_legacy_mapping_is_refused_not_guessed(tmp_path, caplog):
+    """An older state file may hold two docs under one name; never pick the first."""
+    path = tmp_path / "state.json"
+    path.write_text(
+        '{"documents": {"doc1": {"remarkable_name": "Notes"}, '
+        '"doc2": {"remarkable_name": "Notes"}}, "pushed_highlights": []}',
+        encoding="utf-8",
+    )
+    state = SyncState(path)
+    assert any("2 Reader documents" in r.getMessage() for r in caplog.records)
+
+    assert state.reader_id_for_name("Notes") is None
+    assert state.is_name_taken("Notes")
+    assert state.is_name_taken("Notes", by="doc1")  # doc2 still owns it too
